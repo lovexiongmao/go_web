@@ -41,7 +41,7 @@
 ### 1. 安装依赖
 
 ```bash
-go mod download
+go mod tidy
 ```
 
 ### 2. 配置环境变量
