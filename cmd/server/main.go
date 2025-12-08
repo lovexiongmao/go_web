@@ -34,7 +34,7 @@ func startServer(
 	r *gin.Engine,
 ) error {
 	// 设置Gin模式（必须在创建路由之前设置，但路由在依赖注入时已创建）
-	// 因此需要在router中根据配置创建，或者在这里重新设置
+	// 因此需要在router中根据配置创建，或者在这里重新设置.
 	gin.SetMode(cfg.Server.Mode)
 
 	// 初始化数据库表
@@ -77,4 +77,3 @@ func startServer(
 
 	return nil
 }
-
