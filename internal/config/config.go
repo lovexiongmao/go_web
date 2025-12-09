@@ -28,10 +28,11 @@ type DatabaseConfig struct {
 }
 
 type LogConfig struct {
-	Level  string // debug, info, warn, error
-	Format string // json, text
-	Output string // stdout, file, both
-	File   string // 日志文件路径
+	Level     string // debug, info, warn, error
+	Format    string // json, text
+	Output    string // stdout, file, both
+	LogFile   string // 请求日志文件路径
+	AuditFile string // 审计日志文件路径
 }
 
 func LoadConfig() (*Config, error) {
@@ -52,10 +53,11 @@ func LoadConfig() (*Config, error) {
 			DBName:   getEnv("DB_NAME", "testdb"),
 		},
 		Log: LogConfig{
-			Level:  getEnv("LOG_LEVEL", "info"),
-			Format: getEnv("LOG_FORMAT", "text"),
-			Output: getEnv("LOG_OUTPUT", "stdout"),     // stdout, file, both
-			File:   getEnv("LOG_FILE", "logs/app.log"), // 文件路径
+			Level:     getEnv("LOG_LEVEL", "info"),
+			Format:    getEnv("LOG_FORMAT", "text"),
+			Output:    getEnv("LOG_OUTPUT", "stdout"),             // stdout, file, both
+			LogFile:   getEnv("APP_LOG_FILE", "logs/app.log"),     // 请求日志文件路径
+			AuditFile: getEnv("AUDIT_LOG_FILE", "logs/audit.log"), // 审计日志文件路径
 		},
 	}
 

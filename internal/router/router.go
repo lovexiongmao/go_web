@@ -5,17 +5,27 @@ import (
 	"go_test/internal/handler"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/dig"
 )
 
-func SetupRouter(
-	cfg *config.Config,
-	loggerMiddleware gin.HandlerFunc,
-	auditMiddleware gin.HandlerFunc,
-	userHandler *handler.UserHandler,
-) *gin.Engine {
+// RouterParams 路由参数结构体，用于接收命名参数
+type RouterParams struct {
+	dig.In
+
+	Config           *config.Config
+	LoggerMiddleware gin.HandlerFunc `name:"logger"`
+	AuditMiddleware  gin.HandlerFunc `name:"audit"`
+	UserHandler      *handler.UserHandler
+}
+
+func SetupRouter(params RouterParams) *gin.Engine {
+	cfg := params.Config
+	loggerMiddleware := params.LoggerMiddleware
+	auditMiddleware := params.AuditMiddleware
+	userHandler := params.UserHandler
 	// 在创建路由之前设置Gin模式
 	gin.SetMode(cfg.Server.Mode)
-	
+
 	r := gin.Default()
 
 	// 全局中间件
@@ -25,7 +35,7 @@ func SetupRouter(
 	// 健康检查
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{
-			"status": "ok",
+			"status":  "ok",
 			"message": "服务运行正常",
 		})
 	})
@@ -46,4 +56,3 @@ func SetupRouter(
 
 	return r
 }
-

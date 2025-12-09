@@ -28,8 +28,13 @@ func NewContainer() *Container {
 	// 提供配置
 	c.Provide(config.LoadConfig)
 
-	// 提供日志
+	// 提供请求日志Logger
 	c.Provide(logger.NewLogger)
+
+	// 提供审计日志Logger（使用命名参数区分）
+	c.Provide(func(cfg *config.Config) *logger.Logger {
+		return logger.NewAuditLogger(cfg)
+	}, dig.Name("auditLogger"))
 
 	// 提供数据库
 	c.Provide(database.NewDatabase)
@@ -43,13 +48,19 @@ func NewContainer() *Container {
 	// 提供Handler
 	c.Provide(handler.NewUserHandler)
 
-	// 提供中间件
+	// 提供中间件（使用命名参数区分）
 	c.Provide(func(log *logger.Logger) gin.HandlerFunc {
 		return middleware.LoggerMiddleware(log)
-	})
-	c.Provide(func(log *logger.Logger) gin.HandlerFunc {
-		return middleware.AuditMiddleware(log)
-	})
+	}, dig.Name("logger"))
+
+	// 审计中间件参数结构体
+	type AuditMiddlewareParams struct {
+		dig.In
+		AuditLogger *logger.Logger `name:"auditLogger"`
+	}
+	c.Provide(func(params AuditMiddlewareParams) gin.HandlerFunc {
+		return middleware.AuditMiddleware(params.AuditLogger)
+	}, dig.Name("audit"))
 
 	// 提供路由
 	c.Provide(router.SetupRouter)
@@ -65,4 +76,3 @@ func InitializeDatabase(db *gorm.DB) error {
 		// &database.AuditLog{},
 	)
 }
-

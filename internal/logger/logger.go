@@ -16,7 +16,18 @@ type Logger struct {
 	*logrus.Logger
 }
 
+// NewLogger 创建请求日志Logger
 func NewLogger(cfg *config.Config) *Logger {
+	return newLoggerWithFile(cfg, cfg.Log.LogFile, "logs/app.log")
+}
+
+// NewAuditLogger 创建审计日志Logger
+func NewAuditLogger(cfg *config.Config) *Logger {
+	return newLoggerWithFile(cfg, cfg.Log.AuditFile, "logs/audit.log")
+}
+
+// newLoggerWithFile 创建指定文件路径的Logger
+func newLoggerWithFile(cfg *config.Config, filePath, defaultPath string) *Logger {
 	log := logrus.New()
 
 	// 设置日志级别
@@ -50,13 +61,13 @@ func NewLogger(cfg *config.Config) *Logger {
 	// 可选的文件输出
 	if output == "file" || output == "both" {
 		// 确保目录存在
-		if cfg.Log.File == "" {
-			cfg.Log.File = "logs/app.log"
+		if filePath == "" {
+			filePath = defaultPath
 		}
-		if err := os.MkdirAll(filepath.Dir(cfg.Log.File), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(filePath), 0o755); err != nil {
 			fmt.Fprintf(os.Stderr, "创建日志目录失败: %v\n", err)
 		} else {
-			f, ferr := os.OpenFile(cfg.Log.File, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+			f, ferr := os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 			if ferr != nil {
 				fmt.Fprintf(os.Stderr, "打开日志文件失败，改为stdout: %v\n", ferr)
 				writers = append(writers, os.Stdout)
