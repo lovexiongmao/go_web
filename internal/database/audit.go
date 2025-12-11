@@ -10,11 +10,17 @@ import (
 	"gorm.io/gorm"
 )
 
+// Context key types for audit information
+// 使用自定义类型作为 context key，避免键冲突
+type auditUserIDKeyType struct{}
+type auditIPKeyType struct{}
+type auditOldValuesKeyType struct{}
+
 // Context keys for audit information
-const (
-	AuditUserIDKey    = "audit:user_id"
-	AuditIPKey        = "audit:ip"
-	AuditOldValuesKey = "audit:old_values" // 用于存储更新前的旧值
+var (
+	AuditUserIDKey    = auditUserIDKeyType{}
+	AuditIPKey        = auditIPKeyType{}
+	AuditOldValuesKey = auditOldValuesKeyType{} // 用于存储更新前的旧值
 )
 
 // AuditLog 审计日志模型
@@ -65,7 +71,8 @@ func (p *AuditPlugin) Initialize(db *gorm.DB) error {
 	callback.Update().Before("gorm:update").Register("audit:before_update", p.auditBeforeUpdate)
 	callback.Update().After("gorm:update").Register("audit:update", p.auditUpdate)
 
-	// Delete回调
+	// Delete回调：在删除前获取旧值，在删除后记录审计日志
+	callback.Delete().Before("gorm:delete").Register("audit:before_delete", p.auditBeforeDelete)
 	callback.Delete().After("gorm:delete").Register("audit:delete", p.auditDelete)
 
 	return nil
@@ -221,6 +228,49 @@ func (p *AuditPlugin) auditUpdate(db *gorm.DB) {
 	p.db.Session(&gorm.Session{NewDB: true}).Create(&auditLog)
 }
 
+// auditBeforeDelete 在删除前获取旧值并存储到context中
+func (p *AuditPlugin) auditBeforeDelete(db *gorm.DB) {
+	// 跳过审计日志表自身的操作
+	if db.Statement.Schema != nil && db.Statement.Schema.Table == "audit_logs" {
+		return
+	}
+
+	// 获取表名
+	tableName := p.getTableName(db)
+	if tableName == "" {
+		return
+	}
+
+	// 获取记录ID
+	recordID := p.getRecordID(db)
+	if recordID == 0 {
+		return
+	}
+
+	// 在删除前查询旧值
+	if db.Statement.Schema != nil {
+		oldModel := reflect.New(db.Statement.Schema.ModelType).Interface()
+		// 使用新的数据库连接查询，避免影响原事务
+		// 使用 NewDB: true 确保使用独立的连接，避免事务隔离问题
+		// 但保留原 context，以便后续回调可以访问
+		oldDB := db.Session(&gorm.Session{NewDB: true})
+		if err := oldDB.First(oldModel, recordID).Error; err == nil {
+			oldValues := p.serializeModel(oldModel)
+			// 将旧值存储到context中
+			if db.Statement.Context != nil {
+				ctx := db.Statement.Context
+				ctx = context.WithValue(ctx, AuditOldValuesKey, oldValues)
+				db.Statement.Context = ctx
+			} else {
+				// 如果 context 为空，创建一个新的 context
+				ctx := context.Background()
+				ctx = context.WithValue(ctx, AuditOldValuesKey, oldValues)
+				db.Statement.Context = ctx
+			}
+		}
+	}
+}
+
 // auditDelete 记录删除操作的审计日志
 func (p *AuditPlugin) auditDelete(db *gorm.DB) {
 	if db.Error != nil {
@@ -244,12 +294,20 @@ func (p *AuditPlugin) auditDelete(db *gorm.DB) {
 		return
 	}
 
-	// 获取旧值（删除前的值）
+	// 获取旧值
+	// 旧值应该已经在 auditBeforeDelete 中获取并存储到context中
 	oldValues := ""
-	if db.Statement.Schema != nil {
+	if db.Statement.Context != nil {
+		if oldVals, ok := db.Statement.Context.Value(AuditOldValuesKey).(string); ok {
+			oldValues = oldVals
+		}
+	}
+
+	// 如果context中没有旧值，尝试查询（兼容性处理）
+	if oldValues == "" && db.Statement.Schema != nil {
 		oldModel := reflect.New(db.Statement.Schema.ModelType).Interface()
 		// 使用 Unscoped 查询，因为可能已经被软删除
-		if err := db.Session(&gorm.Session{}).Unscoped().First(oldModel, recordID).Error; err == nil {
+		if err := p.db.Session(&gorm.Session{NewDB: true}).Unscoped().First(oldModel, recordID).Error; err == nil {
 			oldValues = p.serializeModel(oldModel)
 		}
 	}
@@ -285,62 +343,66 @@ func (p *AuditPlugin) getTableName(db *gorm.DB) string {
 }
 
 // getRecordID 获取记录ID（主键值）
+// 优先级：1. Schema主键字段（最可靠） 2. Vars中的ID值（Delete操作） 3. Dest中的ID字段（可能是默认值0）
 func (p *AuditPlugin) getRecordID(db *gorm.DB) uint {
-	// 首先尝试从 Dest 反射获取ID
-	if db.Statement.Dest != nil {
-		destValue := reflect.ValueOf(db.Statement.Dest)
-		if destValue.Kind() == reflect.Ptr {
-			if destValue.IsNil() {
-				return 0
+	// 辅助函数：从反射值中提取ID，如果值为0则返回0
+	extractIDFromValue := func(val reflect.Value) uint {
+		switch val.Kind() {
+		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+			if id := uint(val.Uint()); id > 0 {
+				return id
 			}
-			destValue = destValue.Elem()
-		}
-		if destValue.Kind() == reflect.Struct {
-			idField := destValue.FieldByName("ID")
-			if idField.IsValid() {
-				switch idField.Kind() {
-				case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-					return uint(idField.Uint())
-				case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-					id := idField.Int()
-					if id > 0 {
-						return uint(id)
-					}
-				}
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+			if id := val.Int(); id > 0 {
+				return uint(id)
 			}
 		}
+		return 0
 	}
 
-	// 尝试从 Schema 的主键字段获取
+	// 1. 优先尝试从 Schema 的主键字段获取（最可靠，因为 Schema 明确知道主键字段名）
 	if db.Statement.Schema != nil && db.Statement.Schema.PrioritizedPrimaryField != nil {
 		if db.Statement.Dest != nil {
 			destValue := reflect.ValueOf(db.Statement.Dest)
 			if destValue.Kind() == reflect.Ptr {
-				if destValue.IsNil() {
-					return 0
+				if !destValue.IsNil() {
+					destValue = destValue.Elem()
+				} else {
+					destValue = reflect.Value{}
 				}
-				destValue = destValue.Elem()
 			}
-			if destValue.Kind() == reflect.Struct {
+			if destValue.IsValid() && destValue.Kind() == reflect.Struct {
 				fieldValue := destValue.FieldByName(db.Statement.Schema.PrioritizedPrimaryField.Name)
 				if fieldValue.IsValid() {
-					switch fieldValue.Kind() {
-					case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-						return uint(fieldValue.Uint())
-					case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-						id := fieldValue.Int()
-						if id > 0 {
-							return uint(id)
-						}
+					if id := extractIDFromValue(fieldValue); id > 0 {
+						return id
 					}
 				}
 			}
 		}
 	}
 
-	// 尝试从 Statement 的 Vars 中获取（用于 Delete 操作）
+	// 2. 尝试从 Statement 的 Vars 中获取（用于 Delete 操作，Vars 中存储的是实际的 ID 值）
+	// GORM 在 Delete 操作时会将 ID 存储在 Vars 中，可能是值类型或指针类型
 	if len(db.Statement.Vars) > 0 {
 		for _, v := range db.Statement.Vars {
+			// 使用反射处理各种类型，包括指针类型
+			val := reflect.ValueOf(v)
+
+			// 如果是指针类型，解引用
+			for val.Kind() == reflect.Ptr {
+				if val.IsNil() {
+					break
+				}
+				val = val.Elem()
+			}
+
+			// 根据类型提取 ID 值
+			if id := extractIDFromValue(val); id > 0 {
+				return id
+			}
+
+			// 如果反射失败，尝试类型断言（兼容旧代码）
 			if id, ok := v.(uint); ok && id > 0 {
 				return id
 			}
@@ -352,6 +414,25 @@ func (p *AuditPlugin) getRecordID(db *gorm.DB) uint {
 			}
 			if id, ok := v.(int64); ok && id > 0 {
 				return uint(id)
+			}
+		}
+	}
+
+	// 3. 最后尝试从 Dest 反射获取ID（Dest 可能是空结构体，ID 字段是默认值0）
+	if db.Statement.Dest != nil {
+		destValue := reflect.ValueOf(db.Statement.Dest)
+		if destValue.Kind() == reflect.Ptr {
+			if destValue.IsNil() {
+				return 0
+			}
+			destValue = destValue.Elem()
+		}
+		if destValue.Kind() == reflect.Struct {
+			idField := destValue.FieldByName("ID")
+			if idField.IsValid() {
+				if id := extractIDFromValue(idField); id > 0 {
+					return id
+				}
 			}
 		}
 	}
