@@ -36,5 +36,5 @@ logs/
 Thumbs.db
 
 # AI Assistant  Generated Files
-docs/*.md
+docs/ai_assistant/
 
