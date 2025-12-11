@@ -177,3 +177,17 @@ func ErrorWithData(c *gin.Context, code int, message string, data interface{}) {
 		Error:   message,
 	})
 }
+
+// SuccessWithPagination 成功响应（200 OK）带分页信息
+func SuccessWithPagination(c *gin.Context, data interface{}, total int64, page, pageSize int) {
+	c.JSON(http.StatusOK, Response{
+		Code:    http.StatusOK,
+		Message: "操作成功",
+		Data: gin.H{
+			"list":      data,
+			"total":     total,
+			"page":      page,
+			"page_size": pageSize,
+		},
+	})
+}

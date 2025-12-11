@@ -16,10 +16,12 @@ import (
 type RouterParams struct {
 	dig.In
 
-	Config           *config.Config
-	LoggerMiddleware gin.HandlerFunc `name:"logger"`
-	AuditMiddleware  gin.HandlerFunc `name:"audit"`
-	UserHandler      *handler.UserHandler
+	Config            *config.Config
+	LoggerMiddleware  gin.HandlerFunc `name:"logger"`
+	AuditMiddleware   gin.HandlerFunc `name:"audit"`
+	UserHandler       *handler.UserHandler
+	RoleHandler       *handler.RoleHandler
+	PermissionHandler *handler.PermissionHandler
 }
 
 func SetupRouter(params RouterParams) *gin.Engine {
@@ -27,6 +29,8 @@ func SetupRouter(params RouterParams) *gin.Engine {
 	loggerMiddleware := params.LoggerMiddleware
 	auditMiddleware := params.AuditMiddleware
 	userHandler := params.UserHandler
+	roleHandler := params.RoleHandler
+	permissionHandler := params.PermissionHandler
 	// 在创建路由之前设置Gin模式
 	gin.SetMode(cfg.Server.Mode)
 
@@ -59,6 +63,34 @@ func SetupRouter(params RouterParams) *gin.Engine {
 			users.GET("/:id", userHandler.GetUser)
 			users.PUT("/:id", userHandler.UpdateUser)
 			users.DELETE("/:id", userHandler.DeleteUser)
+		}
+
+		// 角色相关路由
+		roles := api.Group("/roles")
+		{
+			roles.POST("", roleHandler.CreateRole)
+			roles.GET("", roleHandler.ListRoles)
+			roles.GET("/:id", roleHandler.GetRole)
+			roles.PUT("/:id", roleHandler.UpdateRole)
+			roles.DELETE("/:id", roleHandler.DeleteRole)
+			// 角色权限管理
+			roles.POST("/:id/permissions", roleHandler.AssignPermissions)
+			roles.DELETE("/:id/permissions", roleHandler.RemovePermissions)
+			roles.GET("/:id/permissions", roleHandler.GetRolePermissions)
+			// 角色用户管理
+			roles.POST("/:id/users", roleHandler.AssignUsers)
+			roles.DELETE("/:id/users", roleHandler.RemoveUsers)
+			roles.GET("/:id/users", roleHandler.GetRoleUsers)
+		}
+
+		// 权限相关路由
+		permissions := api.Group("/permissions")
+		{
+			permissions.POST("", permissionHandler.CreatePermission)
+			permissions.GET("", permissionHandler.ListPermissions)
+			permissions.GET("/:id", permissionHandler.GetPermission)
+			permissions.PUT("/:id", permissionHandler.UpdatePermission)
+			permissions.DELETE("/:id", permissionHandler.DeletePermission)
 		}
 	}
 

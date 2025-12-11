@@ -15,6 +15,10 @@ type UserRepository interface {
 	Update(user *model.User) error
 	Delete(id uint) error
 	List(offset, limit int) ([]*model.User, int64, error)
+	// 用户角色管理
+	AssignRoles(userID uint, roleIDs []uint) error
+	RemoveRoles(userID uint, roleIDs []uint) error
+	GetRoles(userID uint) ([]*model.Role, error)
 }
 
 type userRepository struct {
@@ -31,7 +35,7 @@ func (r *userRepository) Create(user *model.User) error {
 
 func (r *userRepository) GetByID(id uint) (*model.User, error) {
 	var user model.User
-	err := r.db.First(&user, id).Error
+	err := r.db.Preload("Roles").Preload("Roles.Permissions").First(&user, id).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, err
@@ -69,7 +73,7 @@ func (r *userRepository) List(offset, limit int) ([]*model.User, int64, error) {
 		return nil, 0, err
 	}
 
-	err = r.db.Offset(offset).Limit(limit).Find(&users).Error
+	err = r.db.Preload("Roles").Offset(offset).Limit(limit).Find(&users).Error
 	if err != nil {
 		return nil, 0, err
 	}
@@ -77,3 +81,41 @@ func (r *userRepository) List(offset, limit int) ([]*model.User, int64, error) {
 	return users, total, nil
 }
 
+func (r *userRepository) AssignRoles(userID uint, roleIDs []uint) error {
+	var roles []model.Role
+	if err := r.db.Find(&roles, roleIDs).Error; err != nil {
+		return err
+	}
+
+	var user model.User
+	if err := r.db.First(&user, userID).Error; err != nil {
+		return err
+	}
+
+	return r.db.Model(&user).Association("Roles").Append(roles)
+}
+
+func (r *userRepository) RemoveRoles(userID uint, roleIDs []uint) error {
+	var roles []model.Role
+	if err := r.db.Find(&roles, roleIDs).Error; err != nil {
+		return err
+	}
+
+	var user model.User
+	if err := r.db.First(&user, userID).Error; err != nil {
+		return err
+	}
+
+	return r.db.Model(&user).Association("Roles").Delete(roles)
+}
+
+func (r *userRepository) GetRoles(userID uint) ([]*model.Role, error) {
+	var user model.User
+	if err := r.db.First(&user, userID).Error; err != nil {
+		return nil, err
+	}
+
+	var roles []*model.Role
+	err := r.db.Model(&user).Association("Roles").Find(&roles)
+	return roles, err
+}

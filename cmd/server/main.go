@@ -1,6 +1,6 @@
 // @title           Go Test API
 // @version         1.0
-// @description     这是一个 Go 测试项目的 RESTful API 文档
+// @description     这是一个 Go Web项目的 RESTful API 文档
 // @termsOfService  http://swagger.io/terms/
 
 // @contact.name   API Support

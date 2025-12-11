@@ -41,12 +41,18 @@ func NewContainer() *Container {
 
 	// 提供Repository
 	c.Provide(repository.NewUserRepository)
+	c.Provide(repository.NewRoleRepository)
+	c.Provide(repository.NewPermissionRepository)
 
 	// 提供Service
 	c.Provide(service.NewUserService)
+	c.Provide(service.NewRoleService)
+	c.Provide(service.NewPermissionService)
 
 	// 提供Handler
 	c.Provide(handler.NewUserHandler)
+	c.Provide(handler.NewRoleHandler)
+	c.Provide(handler.NewPermissionHandler)
 
 	// 提供中间件（使用命名参数区分）
 	c.Provide(func(log *logger.Logger) gin.HandlerFunc {
@@ -78,6 +84,10 @@ func InitializeDatabase(db *gorm.DB, cfg *config.Config) error {
 
 	return db.AutoMigrate(
 		&model.User{},
+		&model.Role{},
+		&model.Permission{},
+		&model.UserRole{},
+		&model.RolePermission{},
 		&database.AuditLog{},
 	)
 }
